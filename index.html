@@ -128,6 +128,23 @@ label.chk input{width:18px;height:18px;accent-color:var(--ball)}
 .stage.reveal .stage-msg,.stage.blow .stage-msg{display:none}
 .history{display:flex;flex-wrap:wrap;gap:6px;counter-reset:h}
 .history .chip::before{counter-increment:h;content:counter(h) ". ";color:var(--orange-dark)}
+/* 자리·조뽑기용 스컹크 등장 */
+.seatwrap,.blastzone{position:relative}
+.blast{position:absolute;inset:0;pointer-events:none;z-index:5;overflow:hidden}
+.blast .bsk{position:absolute;right:3%;bottom:2%;width:min(190px,36%);transform:translateX(140%);transition:transform .45s ease-out;z-index:2}
+.blast.in .bsk{transform:translateX(0)}
+.blast.out .bsk{transform:translateX(140%);transition-duration:.35s}
+.blast .tail{transform-origin:72px 118px;transform:rotate(38deg);transition:transform .4s cubic-bezier(.3,1.6,.5,1)}
+.blast.lift .tail{transform:rotate(0deg)}
+.blast.shake .bsk{animation:wob .12s 4 linear}
+.blast.shake .tail{animation:wag .12s 4 linear}
+.blast .eye-shut{opacity:0}
+.blast.shake .eye-open{opacity:0}.blast.shake .eye-shut{opacity:1}
+.blast .bp{position:absolute;border-radius:50%;background:radial-gradient(circle at 35% 35%,var(--fart-2),var(--fart) 70%);transform:scale(0);opacity:0;z-index:1}
+.blast.blow .bp{animation:bpuff 1.9s ease-out forwards}
+@keyframes bpuff{0%{transform:scale(0);opacity:0}28%{transform:scale(1);opacity:.97}62%{transform:scale(1.08);opacity:.96}100%{transform:scale(1.35);opacity:0}}
+.blast .bst{position:absolute;left:0;right:0;top:38%;text-align:center;font-family:var(--display);font-weight:800;font-size:clamp(28px,6vw,48px);color:#4d7a00;text-shadow:0 0 8px #fff,0 0 2px #fff;opacity:0;z-index:3}
+.blast.blow .bst{animation:stink 1.5s ease-out .25s forwards}
 @media (prefers-reduced-motion: reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:#fffbe0;color:#3a2300;border:3px solid var(--orange);padding:10px 16px;border-radius:12px;font-weight:800;opacity:0;pointer-events:none;transition:opacity .2s;max-width:calc(100% - 32px);z-index:20}
@@ -188,7 +205,7 @@ label.chk input{width:18px;height:18px;accent-color:var(--ball)}
           <div class="row"><span style="font-weight:700">조 개수</span><input type="number" id="gCount" min="1" max="20" value="4"><button id="gReset">인원 다시 나누기</button></div>
           <span class="status" id="gStatus"></span>
         </div>
-        <div class="groups" id="groups"></div>
+        <div class="blastzone" id="gZone"><div class="groups" id="groups"></div></div>
         <p class="leftover" id="gLeft" hidden></p>
         <div class="row" style="justify-content:center;margin-top:14px">
           <button class="primary" id="gGo">조 뽑기</button>
@@ -360,6 +377,28 @@ const end=()=>{if(drag){drag=null;saveSeats()}};
 grid.addEventListener('pointerup',end);grid.addEventListener('pointercancel',end);
 function apply(cell){const k=cell.dataset.k;if(drag.paint)S.on.add(k);else S.on.delete(k);cell.classList.toggle('on',drag.paint);seatStatus()}
 
+let blasting=false;
+function skunkBlast(zone,mid,done){
+  if(reduce){mid();done&&done();return}
+  blasting=true;['#seatGo','#gGo'].forEach(b=>$(b).disabled=true);
+  const o=document.createElement('div');o.className='blast';
+  const W=zone.clientWidth,H=Math.max(zone.clientHeight,160),sz=Math.max(W,H)*.42;
+  for(let r=0;r<3;r++)for(let c=0;c<5;c++){
+    const b=document.createElement('div');b.className='bp';
+    const x=(c/4)*W+(Math.random()-.5)*sz*.3-sz/2,y=(r/2)*H+(Math.random()-.5)*sz*.3-sz/2;
+    b.style.cssText=`left:${x}px;top:${y}px;width:${sz}px;height:${sz}px;animation-delay:${((4-c)/4*.4+Math.random()*.1).toFixed(2)}s`;
+    o.appendChild(b);
+  }
+  const t=document.createElement('div');t.className='bst';t.textContent='~ 뿌우웅 ~';o.appendChild(t);
+  const sk=document.querySelector('.stage .skunk').cloneNode(true);sk.setAttribute('class','bsk');o.appendChild(sk);
+  zone.appendChild(o);void o.offsetWidth;o.classList.add('in');
+  setTimeout(()=>o.classList.add('lift'),450);
+  setTimeout(()=>o.classList.add('shake'),800);
+  setTimeout(()=>{o.classList.remove('shake');o.classList.add('blow');fart()},1300);
+  setTimeout(mid,2050);
+  setTimeout(()=>o.classList.add('out'),2500);
+  setTimeout(()=>{o.remove();blasting=false;['#seatGo','#gGo'].forEach(b=>$(b).disabled=false);done&&done()},3300);
+}
 $('#seatGo').onclick=()=>{
   const act=activeKeys();if(!act.length){toast('쓸 자리를 먼저 드래그로 칠하세요');return}
   if(!names.length){toast('학생 명단을 입력하세요');return}
@@ -372,11 +411,12 @@ $('#seatGo').onclick=()=>{
   ['#seatEditBar','#seatHint'].forEach(s=>$(s).style.visibility='hidden');
   $('#seatEdit').hidden=false;$('#seatSave').hidden=false;$('#seatGo').textContent='다시 배치하기';
   if(reduce){renderSeats();return}
-  let t=0;S.map={};const iv=setInterval(()=>{
+  if(blasting)return;
+  S.map={};const iv=setInterval(()=>{
     act.forEach(k=>S.map[k]=names[Math.floor(Math.random()*names.length)]);renderSeats();
     grid.querySelectorAll('.seat.on').forEach(c=>c.classList.add('flick'));
-    if((t+=70)>=770){clearInterval(iv);S.map=final;renderSeats()}
-  },70);
+  },90);
+  skunkBlast(wrap,()=>{clearInterval(iv);S.map=final;renderSeats()});
 };
 $('#seatEdit').onclick=()=>{S.mode='edit';S.map={};['#seatEditBar','#seatHint'].forEach(s=>$(s).style.visibility='');$('#seatEdit').hidden=true;$('#seatSave').hidden=true;$('#leftover').hidden=true;$('#seatGo').textContent='자리 배치하기';renderSeats()};
 
@@ -428,8 +468,13 @@ $('#gReset').onclick=()=>{clearGroups();defaultSizes();renderGroups()};
 function clearGroups(){groupsDrawn=null;$('#gSave').hidden=$('#gCopy').hidden=true;$('#gGo').textContent='조 뽑기'}
 $('#gGo').onclick=()=>{
   if(!names.length){toast('학생 명단을 입력하세요');return}
-  const list=shuffle(names);let p=0;groupsDrawn=gSizes.map(sz=>{const g=list.slice(p,p+sz);p+=sz;return g});groupsDrawn.left=list.slice(p);
-  renderGroups();$('#gSave').hidden=$('#gCopy').hidden=false;$('#gGo').textContent='다시 뽑기';
+  if(blasting)return;
+  const list=shuffle(names);let p=0;const fin=gSizes.map(sz=>{const g=list.slice(p,p+sz);p+=sz;return g});fin.left=list.slice(p);
+  const show=()=>{groupsDrawn=fin;renderGroups();$('#gSave').hidden=$('#gCopy').hidden=false;$('#gGo').textContent='다시 뽑기'};
+  if(reduce){show();return}
+  $('#gSave').hidden=$('#gCopy').hidden=true;
+  const iv=setInterval(()=>{const r=shuffle(names);let q=0;groupsDrawn=gSizes.map(sz=>{const g=r.slice(q,q+sz);q+=sz;return g});groupsDrawn.left=[];renderGroups()},90);
+  skunkBlast($('#gZone'),()=>{clearInterval(iv);show()});
 };
 function groupText(){let t=`조 편성 (${today()})\n\n`;groupsDrawn.forEach((g,i)=>{t+=`${i+1}조 (${g.length}명): ${g.join(', ')}\n`});if(groupsDrawn.left.length)t+=`\n미배정: ${groupsDrawn.left.join(', ')}\n`;return t}
 $('#gSave').onclick=async()=>{const ok=await saveFile('조편성_'+today()+'.txt',groupText());if(!ok)copy(groupText())};
