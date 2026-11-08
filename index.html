@@ -68,10 +68,11 @@ label.chk input{width:18px;height:18px;accent-color:var(--ball)}
 
 /* 자리뽑기 */
 .board-bar{background:var(--board);color:var(--board-ink);font-family:var(--display);font-weight:800;text-align:center;border:6px solid var(--wood);border-radius:4px;padding:6px;margin:0 auto 14px;width:min(440px,72%);letter-spacing:6px;box-shadow:0 3px 0 #6d4317;text-shadow:0 0 3px rgba(255,255,255,.4)}
-.seatwrap{position:relative;padding:10px 4px;overflow:hidden;background:repeating-linear-gradient(90deg,#f7ecd6 0 38px,#f1e3c6 38px 40px);border-radius:10px;border:2px solid #d8c39a}
+.seatwrap{position:relative;padding:10px 6px;overflow:hidden;background:repeating-linear-gradient(90deg,#f7ecd6 0 38px,#f1e3c6 38px 40px);border-radius:10px;border:2px solid #d8c39a}
 .grid{display:grid;justify-content:center;touch-action:none;user-select:none;-webkit-user-select:none;margin:0 auto;width:max-content}
 .seat{border-radius:6px;border:2px dashed #b9c6dc;background:var(--seat-off);display:flex;align-items:center;justify-content:center;
-  text-align:center;font-weight:800;color:#8a97ad;transition:background .12s,border-color .12s,transform .12s;overflow:hidden;padding:2px;word-break:keep-all;line-height:1.15;cursor:pointer}
+  text-align:center;font-weight:800;color:#8a97ad;transition:background .12s,border-color .12s,transform .12s;overflow:hidden;padding:1px;white-space:pre-line;overflow-wrap:anywhere;line-height:1.15;cursor:pointer;min-width:0}
+.grid.result{touch-action:pan-y}
 .seat.on{background:linear-gradient(#ffe58a,var(--desk) 45%,#ffb42a);border:2px solid var(--desk-edge);color:#3a2300;box-shadow:inset 0 2px 0 rgba(255,255,255,.7),0 4px 0 #a86400}
 .result .seat.on{font-family:var(--display)}
 .seat.aisle{visibility:hidden}
@@ -318,11 +319,45 @@ function saveSeats(){store.set('rows',S.rows);store.set('cols',S.cols);store.set
 function activeKeys(){return [...S.on].map(k=>k.split('-').map(Number)).filter(([r,c])=>r<S.rows&&c<S.cols).sort((a,b)=>a[0]-b[0]||a[1]-b[1]).map(([r,c])=>key(r,c))}
 function seatStatus(){const n=activeKeys().length,el=$('#seatStatus');el.textContent='자리 '+n+' / 학생 '+names.length;el.className='status '+(n===names.length?'ok':n<names.length?'bad':'')}
 function sizeFor(cols,rows){
-  const W=wrap.clientWidth-8,H=Math.max(240,Math.min(window.innerHeight*.6,620));
-  const gap=cols>9?5:8,ratio=.62;
+  // 가로는 항상 화면 안에 맞춤(밖으로 늘어나지 않음). 칸이 좁아지면 대신 세로로 길쭉하게 해서 이름 공간 확보
+  const W=wrap.clientWidth-14,H=Math.max(300,Math.min(window.innerHeight*.65,700));
+  const gap=cols>12?3:cols>9?4:8,ratio=.62;
   let w=Math.min(170,(W-gap*(cols-1))/cols),h=w*ratio;
-  if(h*rows+gap*(rows-1)>H){h=(H-gap*(rows-1))/rows;w=h/ratio}
-  return {w:Math.floor(w),h:Math.floor(h),gap,fs:Math.max(10,Math.min(22,w*.15))};
+  if(h*rows+gap*(rows-1)>H)h=Math.max((H-gap*(rows-1))/rows,w*.45);
+  h=Math.max(h,Math.min(58,30+w*.35),26);
+  return {w:Math.max(8,Math.floor(w)),h:Math.floor(h),gap,fs:Math.max(9,Math.min(22,w*.17,h*.4))};
+}
+/* 이름 맞추기: 한 줄로 줄이거나, 길면 두 줄로 나눠서 글자 크기 결정 */
+const NAME_FONT='"Nanum Myeongjo","Batang","AppleMyungjo",serif';
+const mctx=document.createElement('canvas').getContext('2d');
+function splitName(s,n){
+  if(n<=1)return [s];
+  const words=s.split(/\s+/).filter(Boolean);
+  if(words.length>=n){ // 띄어쓰기 기준으로 균형 있게 나누기
+    const total=words.join('').length,out=[];let cur='',acc=0,left=n;
+    words.forEach((w,i)=>{const rest=words.length-i;if(cur&&(acc+w.length>total/n*(n-left+1)+.5||rest<left)){out.push(cur);cur=w;left--}else cur=cur?cur+' '+w:w;acc+=w.length});
+    out.push(cur);if(out.length===n)return out;
+  }
+  const t=s.replace(/\s+/g,''),k=Math.ceil(t.length/n),out=[];
+  for(let i=0;i<t.length;i+=k)out.push(t.slice(i,i+k));return out;
+}
+function fitLabel(label,maxW,maxH,base,min){
+  mctx.font=`800 100px ${NAME_FONT}`;
+  const len=label.replace(/\s+/g,'').length;let best=null;
+  for(let n=1;n<=Math.min(8,len);n++){
+    const L=splitName(label,n),w=Math.max(...L.map(t=>mctx.measureText(t).width))||1;
+    const fs=Math.min(base,100*maxW/w,maxH/(n*1.15));
+    if(!best||fs>best.fs*1.08)best={fs,lines:L};
+  }
+  return {fs:Math.max(min,Math.floor(best.fs)),lines:best.lines};
+}
+// 칸이 아주 좁을 때(휴대폰 등): 가장 긴 이름이 읽을 만한 크기(9px)로 들어가도록 자리 높이를 늘림
+function needHeight(maxW){
+  const fs=9;mctx.font=`800 ${fs}px ${NAME_FONT}`;let most=1;
+  [...names,'빈자리'].forEach(n=>{const t=n.replace(/\s+/g,'');let lines=1,cur=0;
+    for(const ch of t){const cw=mctx.measureText(ch).width;if(cur+cw>maxW&&cur>0){lines++;cur=cw}else cur+=cw}
+    most=Math.max(most,lines)});
+  return Math.min(160,Math.ceil(most*fs*1.12+6));
 }
 function renderSeats(){
   let r0=0,c0=0,rows=S.rows,cols=S.cols;
@@ -332,11 +367,13 @@ function renderSeats(){
     r0=Math.min(...rs);c0=Math.min(...cs);rows=Math.max(...rs)-r0+1;cols=Math.max(...cs)-c0+1;
   }
   const z=sizeFor(cols,rows);
+  if(S.mode==='result')z.h=Math.max(z.h,needHeight(z.w-8));
   grid.style.gridTemplateColumns=`repeat(${cols},${z.w}px)`;grid.style.gridAutoRows=z.h+'px';grid.style.gap=z.gap+'px';grid.style.fontSize=z.fs+'px';
   const frag=document.createDocumentFragment();
   for(let r=r0;r<r0+rows;r++)for(let c=c0;c<c0+cols;c++){
     const d=document.createElement('div'),k=key(r,c),on=S.on.has(k);d.className='seat'+(on?' on':'');d.dataset.k=k;
-    if(S.mode==='result'){if(!on)d.classList.add('aisle');else{const n=S.map[k];d.textContent=n||'빈자리';if(!n)d.classList.add('empty')}}
+    if(S.mode==='result'){if(!on)d.classList.add('aisle');else{const n=S.map[k],label=n||'빈자리';
+      const f=fitLabel(label,Math.max(4,z.w-8),z.h-6,z.fs,6);d.style.fontSize=f.fs+'px';d.style.lineHeight='1.12';d.textContent=f.lines.join('\n');d.title=label;if(!n)d.classList.add('empty')}}
     frag.appendChild(d);
   }
   grid.replaceChildren(frag);grid.classList.toggle('result',S.mode==='result');
@@ -435,9 +472,9 @@ $('#seatSave').onclick=async()=>{
   const ox=(W-(cols*cw+(cols-1)*gap))/2;
   act.forEach(k=>{const[r,c]=k.split('-').map(Number);const px=ox+(c-c0)*(cw+gap),py=top+(r-r0)*(ch+gap);
     rr(x,px,py+4,cw,ch,10);x.fillStyle='#a86400';x.fill();rr(x,px,py,cw,ch,10);const dg=x.createLinearGradient(0,py,0,py+ch);dg.addColorStop(0,'#ffe58a');dg.addColorStop(.45,'#ffc94a');dg.addColorStop(1,'#ffb42a');x.fillStyle=dg;x.fill();x.strokeStyle='#d98a00';x.lineWidth=2;x.stroke();
-    const n=S.map[k];x.fillStyle=n?'#3a2300':'#a0702a';let fs=24;x.font=`800 ${fs}px "Nanum Myeongjo", serif`;const label=n||'빈자리';
-    while(x.measureText(label).width>cw-16&&fs>11){fs--;x.font=`800 ${fs}px "Nanum Myeongjo", serif`}
-    x.fillText(label,px+cw/2,py+ch/2)});
+    const n=S.map[k];x.fillStyle=n?'#3a2300':'#a0702a';const label=n||'빈자리';
+    const f=fitLabel(label,cw-16,ch-12,26,10);x.font=`800 ${f.fs}px ${NAME_FONT}`;
+    const lh=f.fs*1.18;f.lines.forEach((t,i)=>x.fillText(t,px+cw/2,py+ch/2+(i-(f.lines.length-1)/2)*lh))});
   cv.toBlob(async b=>{const ok=await saveFile('자리배치_'+today()+'.png',b);if(!ok){$('#modalImg').src=cv.toDataURL('image/png');$('#modal').hidden=false}},'image/png');
 };
 function rr(x,a,b,w,h,r){x.beginPath();x.moveTo(a+r,b);x.arcTo(a+w,b,a+w,b+h,r);x.arcTo(a+w,b+h,a,b+h,r);x.arcTo(a,b+h,a,b,r);x.arcTo(a,b,a+w,b,r);x.closePath()}
@@ -522,6 +559,7 @@ $('#pGo').onclick=()=>{
 
 /* ---------- 시작 ---------- */
 parse();renderGroups();pickStatus();renderSeats();
+if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>{if(!$('#view-seat').hidden)renderSeats()});
 const tab=store.get('tab','seat');const tb=document.querySelector(`.tab[data-view="${tab}"]`);if(tb)tb.click();
 })();
 </script>
